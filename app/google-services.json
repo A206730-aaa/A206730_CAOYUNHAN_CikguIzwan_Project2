@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "93441372069",
+    "project_id": "treeadoptionproject2",
+    "storage_bucket": "treeadoptionproject2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:93441372069:android:b77b724a3fb0f23617024c",
+        "android_client_info": {
+          "package_name": "com.example.a206730_caoyunhan_cikguizwan_project2"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB2lGJshe9JjE9S-CeRzkEo-B4LevP5OxA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
