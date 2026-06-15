@@ -41,11 +41,18 @@ import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
-import android.graphics.Bitmap
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationServices
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 
 val PrimaryIndigo = Color(0xFF53679B)
 val LightPurple = Color(0xFF7E72B8)
@@ -904,22 +911,78 @@ object RetrofitClient {
 @Composable
 fun EnvironmentScreen() {
 
-    var temperature by remember {
-        mutableStateOf("Loading...")
+    val context = LocalContext.current
+    val fusedLocationClient = remember {
+        LocationServices.getFusedLocationProviderClient(context)
     }
 
-    var wind by remember {
-        mutableStateOf("Loading...")
+    var latitude by remember { mutableStateOf("Not loaded") }
+    var longitude by remember { mutableStateOf("Not loaded") }
+    var temperature by remember { mutableStateOf("Loading...") }
+    var wind by remember { mutableStateOf("Loading...") }
+    var status by remember { mutableStateOf("Tap the button to get current GPS location.") }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+
+        val granted =
+            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                    permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        if (granted) {
+            status = "Permission granted. Tap the button again to load GPS."
+        } else {
+            status = "Location permission denied."
+        }
     }
 
-    LaunchedEffect(Unit) {
-        try {
-            val result = RetrofitClient.api.getWeather()
-            temperature = "${result.current_weather?.temperature ?: 0.0} °C"
-            wind = "${result.current_weather?.windspeed ?: 0.0} km/h"
-        } catch (e: Exception) {
-            temperature = "Failed to load API data"
-            wind = "Please check internet connection"
+    fun loadWeather() {
+        kotlinx.coroutines.GlobalScope.launch {
+            try {
+                val result = RetrofitClient.api.getWeather()
+                temperature = "${result.current_weather?.temperature ?: 0.0} °C"
+                wind = "${result.current_weather?.windspeed ?: 0.0} km/h"
+            } catch (e: Exception) {
+                temperature = "Failed"
+                wind = "Failed"
+            }
+        }
+    }
+
+    fun getCurrentLocation() {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!fineGranted && !coarseGranted) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+            return
+        }
+
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                latitude = "%.5f".format(location.latitude)
+                longitude = "%.5f".format(location.longitude)
+                status = "GPS location loaded successfully."
+            } else {
+                latitude = "2.99000"
+                longitude = "101.79000"
+                status = "GPS unavailable. Showing Kajang default location."
+            }
+
+            loadWeather()
         }
     }
 
@@ -932,69 +995,146 @@ fun EnvironmentScreen() {
     }
 
     Column(
-        Modifier
+        modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
         Text(
-            "Live Environment Data",
+            "GPS Planting Location",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = PrimaryIndigo
         )
 
-        Card(Modifier.fillMaxWidth()) {
-
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp)
+        ) {
             Column(
-                Modifier.padding(16.dp),
+                modifier = Modifier
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFFE8F5E9), Color.White)
+                        )
+                    )
+                    .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
 
+                RealMapView(
+                    latitude = latitude.toDoubleOrNull() ?: 2.99,
+                    longitude = longitude.toDoubleOrNull() ?: 101.79
+                )
+
+                Spacer(Modifier.height(12.dp))
+
                 Text(
-                    text = weatherIcon,
-                    fontSize = 72.sp
+                    "Current Planting Area",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    color = PrimaryIndigo
                 )
 
                 Spacer(Modifier.height(8.dp))
 
-                Text(
-                    "Web API: Open-Meteo",
-                    fontWeight = FontWeight.Bold
-                )
+                Text("📍 Latitude: $latitude")
+                Text("📍 Longitude: $longitude")
 
                 Spacer(Modifier.height(8.dp))
 
-                Text("📍 Location: Kajang, Malaysia")
-
                 Text(
-                    "🌡 Temperature: $temperature",
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    "💨 Wind Speed: $wind",
-                    fontWeight = FontWeight.Bold
+                    "Recommended Area: Kajang Eco Park",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2E7D32)
                 )
             }
         }
 
-        Card(Modifier.fillMaxWidth()) {
+        Button(
+            onClick = {
+                getCurrentLocation()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Get Current GPS Location")
+        }
 
-            Column(Modifier.padding(16.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+
+                Text(weatherIcon, fontSize = 56.sp)
 
                 Text(
-                    "SDG 15 Connection",
+                    "Open-Meteo Weather API",
                     fontWeight = FontWeight.Bold
                 )
 
-                Text("This live weather data helps users understand the environment before planting trees.")
+                Spacer(Modifier.height(8.dp))
+
+                Text("🌡 Temperature: $temperature")
+                Text("💨 Wind Speed: $wind")
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Status", fontWeight = FontWeight.Bold)
+                Text(status)
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    "This page uses GPS location service and live weather API to support SDG 15 tree planting decisions."
+                )
             }
         }
     }
 }
 
+@Composable
+fun RealMapView(
+    latitude: Double,
+    longitude: Double
+) {
+    val context = LocalContext.current
+
+    AndroidView(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp),
+        factory = {
+            Configuration.getInstance().userAgentValue = context.packageName
+
+            MapView(context).apply {
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+
+                val point = GeoPoint(latitude, longitude)
+
+                controller.setZoom(15.0)
+                controller.setCenter(point)
+
+                val marker = Marker(this)
+                marker.position = point
+                marker.title = "Current Planting Location"
+                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+
+                overlays.add(marker)
+            }
+        }
+    )
+}
 /* SENSOR */
 
 @Composable
