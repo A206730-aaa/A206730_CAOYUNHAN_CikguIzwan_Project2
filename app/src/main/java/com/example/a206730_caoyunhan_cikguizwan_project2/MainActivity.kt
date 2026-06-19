@@ -53,6 +53,20 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import android.net.Uri
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import coil.compose.AsyncImage
+import com.google.firebase.storage.FirebaseStorage
+import java.util.UUID
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
 
 val PrimaryIndigo = Color(0xFF53679B)
 val LightPurple = Color(0xFF7E72B8)
@@ -88,21 +102,45 @@ class TreeViewModel(
     }
 
     fun uploadToCloud(
-        name: String,
+        userName: String,
         tree: String,
         location: String,
-        price: Int
+        message: String,
+        imageBase64: String
     ) {
+
         val data = hashMapOf(
-            "name" to name,
+            "userName" to userName,
             "tree" to tree,
             "location" to location,
-            "price" to price
+            "message" to message,
+            "imageBase64" to imageBase64
         )
 
         FirebaseFirestore.getInstance()
-            .collection("community_trees")
+            .collection("community_posts")
             .add(data)
+    }
+}
+fun uriToBase64(context: Context, uri: Uri): String {
+    val inputStream = context.contentResolver.openInputStream(uri)
+    val bitmap = BitmapFactory.decodeStream(inputStream)
+
+    val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 300, 300, true)
+
+    val outputStream = ByteArrayOutputStream()
+    resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 35, outputStream)
+
+    val byteArray = outputStream.toByteArray()
+    return Base64.encodeToString(byteArray, Base64.DEFAULT)
+}
+
+fun base64ToBitmap(base64String: String): Bitmap? {
+    return try {
+        val bytes = Base64.decode(base64String, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (e: Exception) {
+        null
     }
 }
 
@@ -453,10 +491,9 @@ fun AdoptScreen(
     navController: NavController,
     viewModel: TreeViewModel
 ) {
+    val context = LocalContext.current
 
-    var name by remember {
-        mutableStateOf("")
-    }
+    var name by remember { mutableStateOf("") }
 
     val treeOptions = listOf(
         "Banyan Tree" to 50,
@@ -472,29 +509,28 @@ fun AdoptScreen(
         "Langkawi Nature Reserve"
     )
 
-    var selectedTree by remember {
-        mutableStateOf(treeOptions[0])
-    }
+    var selectedTree by remember { mutableStateOf(treeOptions[0]) }
+    var selectedLocation by remember { mutableStateOf(locationOptions[0]) }
+    var treeExpanded by remember { mutableStateOf(false) }
+    var locationExpanded by remember { mutableStateOf(false) }
 
-    var selectedLocation by remember {
-        mutableStateOf(locationOptions[0])
-    }
+    var shareToCommunity by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
-    var treeExpanded by remember {
-        mutableStateOf(false)
-    }
-
-    var locationExpanded by remember {
-        mutableStateOf(false)
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = PickVisualMedia()
+    ) { uri ->
+        selectedImageUri = uri
     }
 
     Column(
-        Modifier
+        modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-
         Text(
             "Tree Adoption Form",
             fontSize = 24.sp,
@@ -504,29 +540,20 @@ fun AdoptScreen(
 
         OutlinedTextField(
             value = name,
-            onValueChange = {
-                name = it
-            },
-            label = {
-                Text("Tree Name")
-            },
+            onValueChange = { name = it },
+            label = { Text("Tree Name") },
             modifier = Modifier.fillMaxWidth()
         )
 
         ExposedDropdownMenuBox(
             expanded = treeExpanded,
-            onExpandedChange = {
-                treeExpanded = !treeExpanded
-            }
+            onExpandedChange = { treeExpanded = !treeExpanded }
         ) {
-
             OutlinedTextField(
                 value = selectedTree.first,
                 onValueChange = {},
                 readOnly = true,
-                label = {
-                    Text("Tree Type")
-                },
+                label = { Text("Tree Type") },
                 trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(treeExpanded)
                 },
@@ -537,17 +564,11 @@ fun AdoptScreen(
 
             ExposedDropdownMenu(
                 expanded = treeExpanded,
-                onDismissRequest = {
-                    treeExpanded = false
-                }
+                onDismissRequest = { treeExpanded = false }
             ) {
-
                 treeOptions.forEach {
-
                     DropdownMenuItem(
-                        text = {
-                            Text("${it.first} - RM${it.second}")
-                        },
+                        text = { Text("${it.first} - RM${it.second}") },
                         onClick = {
                             selectedTree = it
                             treeExpanded = false
@@ -559,18 +580,13 @@ fun AdoptScreen(
 
         ExposedDropdownMenuBox(
             expanded = locationExpanded,
-            onExpandedChange = {
-                locationExpanded = !locationExpanded
-            }
+            onExpandedChange = { locationExpanded = !locationExpanded }
         ) {
-
             OutlinedTextField(
                 value = selectedLocation,
                 onValueChange = {},
                 readOnly = true,
-                label = {
-                    Text("Location")
-                },
+                label = { Text("Location") },
                 trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(locationExpanded)
                 },
@@ -581,17 +597,11 @@ fun AdoptScreen(
 
             ExposedDropdownMenu(
                 expanded = locationExpanded,
-                onDismissRequest = {
-                    locationExpanded = false
-                }
+                onDismissRequest = { locationExpanded = false }
             ) {
-
                 locationOptions.forEach {
-
                     DropdownMenuItem(
-                        text = {
-                            Text(it)
-                        },
+                        text = { Text(it) },
                         onClick = {
                             selectedLocation = it
                             locationExpanded = false
@@ -608,6 +618,50 @@ fun AdoptScreen(
             color = PrimaryIndigo
         )
 
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = shareToCommunity,
+                onCheckedChange = { shareToCommunity = it }
+            )
+
+            Text("Share to Community Forest")
+        }
+
+        if (shareToCommunity) {
+            OutlinedTextField(
+                value = message,
+                onValueChange = { message = it },
+                label = { Text("Share Message") },
+                placeholder = {
+                    Text("I adopted this tree to support SDG 15!")
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = {
+                    photoPickerLauncher.launch(
+                        PickVisualMediaRequest(PickVisualMedia.ImageOnly)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Choose Tree Photo")
+            }
+
+            if (selectedImageUri != null) {
+                AsyncImage(
+                    model = selectedImageUri,
+                    contentDescription = "Selected tree photo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                )
+            }
+        }
+
         Button(
             onClick = {
                 if (name.isNotBlank()) {
@@ -618,12 +672,21 @@ fun AdoptScreen(
                         price = selectedTree.second
                     )
 
-                    viewModel.uploadToCloud(
-                        name = name,
-                        tree = selectedTree.first,
-                        location = selectedLocation,
-                        price = selectedTree.second
-                    )
+                    if (shareToCommunity) {
+                        val imageBase64 = selectedImageUri?.let {
+                            uriToBase64(context, it)
+                        } ?: ""
+
+                        viewModel.uploadToCloud(
+                            userName = name,
+                            tree = selectedTree.first,
+                            location = selectedLocation,
+                            message = message.ifBlank {
+                                "I adopted this tree to support SDG 15!"
+                            },
+                            imageBase64 = imageBase64
+                        )
+                    }
 
                     navController.navigate(Screen.Summary.route) {
                         launchSingleTop = true
@@ -635,13 +698,8 @@ fun AdoptScreen(
             Text("Submit")
         }
 
-        Text(
-            "This form saves data locally using Room and uploads a copy to Firebase Firestore.",
-            color = Color.Gray
-        )
     }
 }
-
 /* SUMMARY */
 
 @Composable
@@ -1211,11 +1269,12 @@ fun MotionSensorScreen() {
 }
 /* FIREBASE CLOUD */
 
-data class CommunityTree(
-    val name: String = "",
+data class CommunityPost(
+    val userName: String = "",
     val tree: String = "",
     val location: String = "",
-    val price: Int = 0
+    val message: String = "",
+    val imageBase64: String = ""
 )
 
 @Composable
@@ -1225,17 +1284,17 @@ fun CommunityScreen() {
         FirebaseFirestore.getInstance()
     }
 
-    var trees by remember {
-        mutableStateOf<List<CommunityTree>>(emptyList())
+    var posts by remember {
+        mutableStateOf<List<CommunityPost>>(emptyList())
     }
 
     DisposableEffect(Unit) {
 
-        val listener = db.collection("community_trees")
+        val listener = db.collection("community_posts")
             .addSnapshotListener { snapshot, _ ->
 
-                trees = snapshot?.documents?.mapNotNull {
-                    it.toObject(CommunityTree::class.java)
+                posts = snapshot?.documents?.mapNotNull {
+                    it.toObject(CommunityPost::class.java)
                 } ?: emptyList()
             }
 
@@ -1262,21 +1321,21 @@ fun CommunityScreen() {
 
         item {
             Text(
-                "This screen loads shared tree records from Firebase Firestore.",
+                "This screen loads community tree posts, messages, and shared photos from Firebase Firestore.",
                 modifier = Modifier.padding(8.dp),
                 color = Color.Gray
             )
         }
 
-        if (trees.isEmpty()) {
+        if (posts.isEmpty()) {
             item {
                 Text(
-                    "No cloud records yet.",
+                    "No community posts yet.",
                     modifier = Modifier.padding(8.dp)
                 )
             }
         } else {
-            items(trees) {
+            items(posts) { post ->
 
                 Card(
                     Modifier
@@ -1288,21 +1347,42 @@ fun CommunityScreen() {
                         Modifier.padding(16.dp)
                     ) {
 
+                        if (post.imageBase64.isNotBlank()) {
+                            val bitmap = base64ToBitmap(post.imageBase64)
+
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Tree photo",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp)
+                                )
+
+                                Spacer(Modifier.height(8.dp))
+                            }
+                        }
+
                         Text(
-                            it.name,
+                            "👤 ${post.userName}",
                             fontWeight = FontWeight.Bold
                         )
 
-                        Text(it.tree)
-                        Text(it.location)
-                        Text("RM${it.price}")
+                        Text("🌳 ${post.tree}")
+                        Text("📍 ${post.location}")
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Text(
+                            "💬 ${post.message}",
+                            color = Color.DarkGray
+                        )
                     }
                 }
             }
         }
     }
 }
-
 /* COMPONENTS */
 
 @Composable
